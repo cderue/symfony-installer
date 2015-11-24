@@ -8,7 +8,6 @@
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
  */
-
 namespace Symfony\Installer;
 
 use Distill\Distill;
@@ -36,11 +35,15 @@ use Symfony\Installer\Exception\AbortException;
  */
 abstract class DownloadCommand extends Command
 {
+
     /** @var Filesystem */
     protected $fs;
+
     /** @var OutputInterface */
     protected $output;
+
     protected $projectName;
+
     protected $projectDir;
 
     /**
@@ -60,7 +63,7 @@ abstract class DownloadCommand extends Command
     {
         $this->output = $output;
         $this->fs = new Filesystem();
-
+        
         $this->enableSignalHandler();
     }
 
@@ -76,27 +79,28 @@ abstract class DownloadCommand extends Command
     protected function download()
     {
         $this->output->writeln(sprintf("\n Downloading %s...\n", $this->getDownloadedApplicationType()));
-
+        
         // decide which is the best compressed version to download
         $distill = new Distill();
-        $symfonyArchiveFile = $distill
-            ->getChooser()
+        $symfonyArchiveFile = $distill->getChooser()
             ->setStrategy(new MinimumSize())
-            ->addFilesWithDifferentExtensions($this->getRemoteFileUrl(), ['tgz', 'zip'])
-            ->getPreferredFile()
-        ;
-
+            ->addFilesWithDifferentExtensions($this->getRemoteFileUrl(), [
+            'tgz',
+            'zip'
+        ])
+            ->getPreferredFile();
+        
         /** @var ProgressBar|null $progressBar */
         $progressBar = null;
-        $downloadCallback = function (ProgressEvent $event) use (&$progressBar) {
+        $downloadCallback = function (ProgressEvent $event) use(&$progressBar) {
             $downloadSize = $event->downloadSize;
             $downloaded = $event->downloaded;
-
+            
             // progress bar is only displayed for files larger than 1MB
             if ($downloadSize < 1 * 1024 * 1024) {
                 return;
             }
-
+            
             if (null === $progressBar) {
                 ProgressBar::setPlaceholderFormatterDefinition('max', function (ProgressBar $bar) {
                     return $this->formatSize($bar->getMaxSteps());
@@ -104,96 +108,84 @@ abstract class DownloadCommand extends Command
                 ProgressBar::setPlaceholderFormatterDefinition('current', function (ProgressBar $bar) {
                     return str_pad($this->formatSize($bar->getProgress()), 11, ' ', STR_PAD_LEFT);
                 });
-
+                
                 $progressBar = new ProgressBar($this->output, $downloadSize);
                 $progressBar->setFormat('%current%/%max% %bar%  %percent:3s%%');
                 $progressBar->setRedrawFrequency(max(1, floor($downloadSize / 1000)));
                 $progressBar->setBarWidth(60);
-
-                if (!defined('PHP_WINDOWS_VERSION_BUILD')) {
+                
+                if (! defined('PHP_WINDOWS_VERSION_BUILD')) {
                     $progressBar->setEmptyBarCharacter('░'); // light shade character \u2591
                     $progressBar->setProgressCharacter('');
                     $progressBar->setBarCharacter('▓'); // dark shade character \u2593
                 }
-
+                
                 $progressBar->start();
             }
-
+            
             $progressBar->setProgress($downloaded);
         };
-
+        
         $client = $this->getGuzzleClient();
-
+        
         // store the file in a temporary hidden directory with a random name
-        $this->downloadedFilePath = rtrim(getcwd(), DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'.'.uniqid(time()).DIRECTORY_SEPARATOR.'symfony.'.pathinfo($symfonyArchiveFile, PATHINFO_EXTENSION);
-
+        $this->downloadedFilePath = rtrim(getcwd(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . '.' . uniqid(time()) . DIRECTORY_SEPARATOR . 'symfony.' . pathinfo($symfonyArchiveFile, PATHINFO_EXTENSION);
+        
         try {
             $request = $client->createRequest('GET', $symfonyArchiveFile);
             $request->getEmitter()->on('progress', $downloadCallback);
             $response = $client->send($request);
         } catch (ClientException $e) {
             if ('new' === $this->getName() && ($e->getCode() === 403 || $e->getCode() === 404)) {
-                throw new \RuntimeException(sprintf(
-                    "The selected version (%s) cannot be installed because it does not exist.\n".
-                    "Execute the following command to install the latest stable Symfony release:\n".
-                    '%s new %s',
-                    $this->version,
-                    $_SERVER['PHP_SELF'],
-                    str_replace(getcwd().DIRECTORY_SEPARATOR, '', $this->projectDir)
-                ));
+                throw new \RuntimeException(sprintf("The selected version (%s) cannot be installed because it does not exist.\n" . "Execute the following command to install the latest stable Symfony release:\n" . '%s new %s', $this->version, $_SERVER['PHP_SELF'], str_replace(getcwd() . DIRECTORY_SEPARATOR, '', $this->projectDir)));
             } else {
-                throw new \RuntimeException(sprintf(
-                    "There was an error downloading %s from symfony.com server:\n%s",
-                    $this->getDownloadedApplicationType(),
-                    $e->getMessage()
-                ), null, $e);
+                throw new \RuntimeException(sprintf("There was an error downloading %s from symfony.com server:\n%s", $this->getDownloadedApplicationType(), $e->getMessage()), null, $e);
             }
         }
-
+        
         $this->fs->dumpFile($this->downloadedFilePath, $response->getBody());
-
+        
         if (null !== $progressBar) {
             $progressBar->finish();
             $this->output->writeln("\n");
         }
-
+        
         return $this;
     }
 
     protected function checkProjectName()
     {
-        if (is_dir($this->projectDir) && !$this->isEmptyDirectory($this->projectDir)) {
-            throw new \RuntimeException(sprintf(
-                "There is already a '%s' project in this directory (%s).\n".
-                'Change your project name or create it in another directory.',
-                $this->projectName, $this->projectDir
-            ));
+        if (is_dir($this->projectDir) && ! $this->isEmptyDirectory($this->projectDir)) {
+            throw new \RuntimeException(sprintf("There is already a '%s' project in this directory (%s).\n" . 'Change your project name or create it in another directory.', $this->projectName, $this->projectDir));
         }
-
+        
         return $this;
     }
 
     /**
      * Returns the Guzzle client configured according to the system environment
-     * (e.g. it takes into account whether it should use a proxy server or not).
+     * (e.g.
+     * it takes into account whether it should use a proxy server or not).
      *
      * @return Client
      */
     protected function getGuzzleClient()
     {
         $defaults = array();
-
+        
         // check if the client must use a proxy server
-        if (!empty($_SERVER['HTTP_PROXY']) || !empty($_SERVER['http_proxy'])) {
-            $proxy = !empty($_SERVER['http_proxy']) ? $_SERVER['http_proxy'] : $_SERVER['HTTP_PROXY'];
+        if (! empty($_SERVER['HTTP_PROXY']) || ! empty($_SERVER['http_proxy'])) {
+            $proxy = ! empty($_SERVER['http_proxy']) ? $_SERVER['http_proxy'] : $_SERVER['HTTP_PROXY'];
             $defaults['proxy'] = $proxy;
         }
-
+        
         if ($this->output->getVerbosity() >= OutputInterface::VERBOSITY_DEBUG) {
             $defaults['debug'] = true;
         }
-
-        return new Client(array('defaults' => $defaults));
+        
+        return new Client(array(
+            'defaults' => $defaults
+        ));
     }
 
     /**
@@ -207,49 +199,24 @@ abstract class DownloadCommand extends Command
     protected function extract()
     {
         $this->output->writeln(" Preparing project...\n");
-
+        
         try {
             $distill = new Distill();
             $extractionSucceeded = $distill->extractWithoutRootDirectory($this->downloadedFilePath, $this->projectDir);
         } catch (FileCorruptedException $e) {
-            throw new \RuntimeException(sprintf(
-                "%s can't be installed because the downloaded package is corrupted.\n".
-                "To solve this issue, try executing this command again:\n%s",
-                ucfirst($this->getDownloadedApplicationType()), $this->getExecutedCommand()
-            ));
+            throw new \RuntimeException(sprintf("%s can't be installed because the downloaded package is corrupted.\n" . "To solve this issue, try executing this command again:\n%s", ucfirst($this->getDownloadedApplicationType()), $this->getExecutedCommand()));
         } catch (FileEmptyException $e) {
-            throw new \RuntimeException(sprintf(
-                "%s can't be installed because the downloaded package is empty.\n".
-                "To solve this issue, try executing this command again:\n%s",
-                ucfirst($this->getDownloadedApplicationType()), $this->getExecutedCommand()
-            ));
+            throw new \RuntimeException(sprintf("%s can't be installed because the downloaded package is empty.\n" . "To solve this issue, try executing this command again:\n%s", ucfirst($this->getDownloadedApplicationType()), $this->getExecutedCommand()));
         } catch (TargetDirectoryNotWritableException $e) {
-            throw new \RuntimeException(sprintf(
-                "%s can't be installed because the installer doesn't have enough\n".
-                "permissions to uncompress and rename the package contents.\n".
-                "To solve this issue, check the permissions of the %s directory and\n".
-                "try executing this command again:\n%s",
-                ucfirst($this->getDownloadedApplicationType()), getcwd(), $this->getExecutedCommand()
-            ));
+            throw new \RuntimeException(sprintf("%s can't be installed because the installer doesn't have enough\n" . "permissions to uncompress and rename the package contents.\n" . "To solve this issue, check the permissions of the %s directory and\n" . "try executing this command again:\n%s", ucfirst($this->getDownloadedApplicationType()), getcwd(), $this->getExecutedCommand()));
         } catch (\Exception $e) {
-            throw new \RuntimeException(sprintf(
-                "%s can't be installed because the downloaded package is corrupted\n".
-                "or because the installer doesn't have enough permissions to uncompress and\n".
-                "rename the package contents.\n".
-                "To solve this issue, check the permissions of the %s directory and\n".
-                "try executing this command again:\n%s",
-                ucfirst($this->getDownloadedApplicationType()), getcwd(), $this->getExecutedCommand()
-            ), null, $e);
+            throw new \RuntimeException(sprintf("%s can't be installed because the downloaded package is corrupted\n" . "or because the installer doesn't have enough permissions to uncompress and\n" . "rename the package contents.\n" . "To solve this issue, check the permissions of the %s directory and\n" . "try executing this command again:\n%s", ucfirst($this->getDownloadedApplicationType()), getcwd(), $this->getExecutedCommand()), null, $e);
         }
-
-        if (!$extractionSucceeded) {
-            throw new \RuntimeException(sprintf(
-                "%s can't be installed because the downloaded package is corrupted\n".
-                "or because the uncompress commands of your operating system didn't work.",
-                ucfirst($this->getDownloadedApplicationType())
-            ));
+        
+        if (! $extractionSucceeded) {
+            throw new \RuntimeException(sprintf("%s can't be installed because the downloaded package is corrupted\n" . "or because the uncompress commands of your operating system didn't work.", ucfirst($this->getDownloadedApplicationType())));
         }
-
+        
         return $this;
     }
 
@@ -261,7 +228,7 @@ abstract class DownloadCommand extends Command
     protected function checkSymfonyRequirements()
     {
         try {
-            require $this->projectDir.'/app/SymfonyRequirements.php';
+            require $this->projectDir . '/app/SymfonyRequirements.php';
             $symfonyRequirements = new \SymfonyRequirements();
             $this->requirementsErrors = array();
             foreach ($symfonyRequirements->getRequirements() as $req) {
@@ -272,12 +239,13 @@ abstract class DownloadCommand extends Command
         } catch (MethodArgumentValueNotImplementedException $e) {
             // workaround https://github.com/symfony/symfony-installer/issues/163
         }
-
+        
         return $this;
     }
 
     /**
-     * Creates the appropriate .gitignore file for a Symfony project.
+     * Creates the appropriate .
+     * gitignore file for a Symfony project.
      *
      * @return Command
      */
@@ -294,16 +262,72 @@ abstract class DownloadCommand extends Command
             '/bin/',
             '/composer.phar',
             '/vendor/',
-            '/web/bundles/',
+            '/web/bundles/'
         );
-
+        
         try {
-            $this->fs->dumpFile($this->projectDir.'/.gitignore', implode("\n", $gitIgnoreEntries)."\n");
+            $this->fs->dumpFile($this->projectDir . '/.gitignore', implode("\n", $gitIgnoreEntries) . "\n");
         } catch (\Exception $e) {
             // don't throw an exception in case the .gitignore file cannot be created,
             // because this is just an enhancement, not something mandatory for the project
         }
+        
+        return $this;
+    }
 
+    /**
+     * Creates the appropriate .
+     * gitignore file for a Symfony project.
+     *
+     * @return Command
+     */
+    protected function createWebConfig()
+    {
+        $webConfig = array(
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<configuration>',
+            '<system.webServer>',
+            '<defaultDocument enabled="true">',
+            '<files>',
+            '<clear />',
+            '<add value="app.php" />',
+            '</files>',
+            '</defaultDocument>',
+            '<rewrite>',
+            '<rules>',
+            '<clear />',
+            '<rule name="blockAccessToPublic" patternSyntax="Wildcard" stopProcessing="true">',
+            '<match url="*" />',
+            '<conditions logicalGrouping="MatchAll" trackAllCaptures="false">',
+            '<add input="{URL}" pattern="/web/*" />',
+            '</conditions>',
+            '<action type="CustomResponse" statusCode="403" statusReason="Forbidden: Access is denied." statusDescription="You do not have permission to view this directory or page using the credentials that you supplied." />',
+            '</rule>',
+            '<rule name="RewriteAssetsToPublic" stopProcessing="true">',
+            '<match url="^(.*)(\.css|\.js|\.jpg|\.png|\.gif)$" />',
+            '<conditions logicalGrouping="MatchAll" trackAllCaptures="false">',
+            '</conditions>',
+            '<action type="Rewrite" url="web/{R:0}" />',
+            '</rule>',
+            '<rule name="RewriteRequestsToPublic" stopProcessing="true">',
+            '<match url="^(.*)$" />',
+            '<conditions logicalGrouping="MatchAll" trackAllCaptures="false">',
+            '</conditions>',
+            '<action type="Rewrite" url="web/app.php/{R:0}" />',
+            '</rule>',
+            '</rules>',
+            '</rewrite>',
+            '</system.webServer>',
+            '</configuration>'
+        );
+        
+        try {
+            $this->fs->dumpFile($this->projectDir . '/web.config', implode("\n", $webConfig) . "\n");
+        } catch (\Exception $e) {
+            // don't throw an exception in case the web.config file cannot be created,
+            // because this is just an enhancement, not something mandatory for the project
+        }
+        
         return $this;
     }
 
@@ -313,41 +337,50 @@ abstract class DownloadCommand extends Command
     protected function checkPermissions()
     {
         $projectParentDirectory = dirname($this->projectDir);
-
-        if (!is_writable($projectParentDirectory)) {
+        
+        if (! is_writable($projectParentDirectory)) {
             throw new IOException(sprintf('Installer does not have enough permissions to write to the "%s" directory.', $projectParentDirectory));
         }
-
+        
         return $this;
     }
 
     /**
      * Utility method to show the number of bytes in a readable format.
      *
-     * @param int $bytes The number of bytes to format
-     *
+     * @param int $bytes
+     *            The number of bytes to format
+     *            
      * @return string The human readable string of bytes (e.g. 4.32MB)
      */
     protected function formatSize($bytes)
     {
-        $units = array('B', 'KB', 'MB', 'GB', 'TB');
-
+        $units = array(
+            'B',
+            'KB',
+            'MB',
+            'GB',
+            'TB'
+        );
+        
         $bytes = max($bytes, 0);
         $pow = $bytes ? floor(log($bytes, 1024)) : 0;
         $pow = min($pow, count($units) - 1);
-
+        
         $bytes /= pow(1024, $pow);
-
-        return number_format($bytes, 2).' '.$units[$pow];
+        
+        return number_format($bytes, 2) . ' ' . $units[$pow];
     }
 
     /**
      * Formats the error message contained in the given Requirement item
      * using the optional line length provided.
      *
-     * @param \Requirement $requirement The Symfony requirements
-     * @param int          $lineSize    The maximum line length
-     *
+     * @param \Requirement $requirement
+     *            The Symfony requirements
+     * @param int $lineSize
+     *            The maximum line length
+     *            
      * @return string
      */
     protected function getErrorMessage(\Requirement $requirement, $lineSize = 70)
@@ -355,10 +388,10 @@ abstract class DownloadCommand extends Command
         if ($requirement->isFulfilled()) {
             return;
         }
-
-        $errorMessage = wordwrap($requirement->getTestMessage(), $lineSize - 3, PHP_EOL.'   ').PHP_EOL;
-        $errorMessage .= '   > '.wordwrap($requirement->getHelpText(), $lineSize - 5, PHP_EOL.'   > ').PHP_EOL;
-
+        
+        $errorMessage = wordwrap($requirement->getTestMessage(), $lineSize - 3, PHP_EOL . '   ') . PHP_EOL;
+        $errorMessage .= '   > ' . wordwrap($requirement->getHelpText(), $lineSize - 5, PHP_EOL . '   > ') . PHP_EOL;
+        
         return $errorMessage;
     }
 
@@ -372,13 +405,14 @@ abstract class DownloadCommand extends Command
         if (function_exists('openssl_random_pseudo_bytes')) {
             return hash('sha1', openssl_random_pseudo_bytes(23));
         }
-
+        
         return hash('sha1', uniqid(mt_rand(), true));
     }
 
     /**
      * Returns the executed command with all its arguments
-     * (e.g. "symfony new blog 2.3.6").
+     * (e.g.
+     * "symfony new blog 2.3.6").
      *
      * @return string
      */
@@ -390,43 +424,44 @@ abstract class DownloadCommand extends Command
         if (in_array($commandBinaryDir, $pathDirs)) {
             $commandBinary = basename($commandBinary);
         }
-
+        
         $commandName = $this->getName();
-
+        
         if ('new' === $commandName) {
             $commandArguments = sprintf('%s %s', $this->projectName, ('latest' !== $this->version) ? $this->version : '');
         } elseif ('demo' === $commandName) {
             $commandArguments = '';
         }
-
+        
         return sprintf('%s %s %s', $commandBinary, $commandName, $commandArguments);
     }
 
     /**
      * Checks whether the given directory is empty or not.
      *
-     * @param string $dir the path of the directory to check
-     *
+     * @param string $dir
+     *            the path of the directory to check
+     *            
      * @return bool
      */
     protected function isEmptyDirectory($dir)
     {
         // glob() cannot be used because it doesn't take into account hidden files
-        // scandir() returns '.'  and '..'  for an empty dir
-        return 2 === count(scandir($dir.'/'));
+        // scandir() returns '.' and '..' for an empty dir
+        return 2 === count(scandir($dir . '/'));
     }
 
     private function enableSignalHandler()
     {
-        if (!function_exists('pcntl_signal')) {
+        if (! function_exists('pcntl_signal')) {
             return;
         }
-
+        
         declare(ticks = 1);
-
+        
         pcntl_signal(SIGINT, function () {
             error_reporting(0);
-
+            
             throw new AbortException();
         });
     }

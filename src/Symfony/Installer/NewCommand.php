@@ -62,6 +62,7 @@ class NewCommand extends DownloadCommand
                 ->updateParameters()
                 ->updateComposerJson()
                 ->createGitIgnore()
+                ->createWebConfig();
                 ->checkSymfonyRequirements()
                 ->displayInstallationResult()
             ;
